@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reels Studio</title>
+<style>
+  :root {
+    --bg: #111214; --panel: #1a1c1f; --panel-2: #23262a; --line: #2f3338;
+    --text: #eceef0; --muted: #9aa1a9; --accent: #ff4f7b; --accent-2: #ffd23f; --ok: #3ccf91;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 5; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 650; }
+  header .meta { color: var(--muted); }
+  header .spacer { flex: 1; }
+  button { background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 7px 12px; font: inherit; cursor: pointer; }
+  button:hover { border-color: #4a5058; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button.small { padding: 2px 8px; font-size: 12px; }
+  button:disabled { opacity: .5; cursor: progress; }
+  main { display: grid; grid-template-columns: minmax(260px, 380px) 1fr; gap: 16px; padding: 16px; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+  .phone { position: sticky; top: 72px; }
+  .screen { position: relative; aspect-ratio: 9 / 16; background: #000; border-radius: 18px; overflow: hidden; border: 1px solid var(--line); }
+  .screen video { width: 100%; height: 100%; object-fit: cover; }
+  .hook { position: absolute; top: 13%; left: 8%; right: 8%; text-align: center; }
+  .hook span { background: #fff; color: #000; font-weight: 800; padding: 4px 10px; border-radius: 6px; font-size: clamp(14px, 4.5vw, 22px); box-decoration-break: clone; -webkit-box-decoration-break: clone; line-height: 1.6; }
+  .cap { position: absolute; bottom: 30%; left: 6%; right: 6%; text-align: center; font-weight: 900; text-transform: uppercase; font-size: clamp(18px, 6vw, 30px); color: #fff; text-shadow: 0 0 4px #000, 0 2px 0 #000, 2px 0 0 #000, -2px 0 0 #000, 0 -2px 0 #000; }
+  .cap .em { color: var(--accent-2); }
+  .controls { display: flex; gap: 8px; margin-top: 10px; align-items: center; }
+  .progress { flex: 1; height: 6px; background: var(--panel-2); border-radius: 3px; overflow: hidden; cursor: pointer; }
+  .progress div { height: 100%; width: 0; background: var(--accent); }
+  .time { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; min-width: 84px; text-align: right; }
+  section.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+  section.card h2 { margin: 0 0 10px; font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  label.field { display: block; margin-bottom: 10px; }
+  label.field span { display: block; color: var(--muted); font-size: 12px; margin-bottom: 3px; }
+  input[type=text], textarea, input[type=number] { width: 100%; background: var(--panel-2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font: inherit; }
+  textarea { min-height: 90px; resize: vertical; }
+  input[type=number] { width: 84px; font-variant-numeric: tabular-nums; }
+  .seg { border: 1px solid var(--line); border-radius: 10px; padding: 10px; margin-bottom: 8px; background: var(--panel-2); }
+  .seg.off { opacity: .45; }
+  .seg.playing { border-color: var(--accent); }
+  .seg-top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .seg-top .reason { color: var(--muted); font-size: 12px; flex: 1; min-width: 120px; }
+  .seg-text { margin: 6px 0; color: #cfd3d7; }
+  .times { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .caps { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .caps input { width: auto; min-width: 60px; font-size: 12px; padding: 3px 6px; }
+  .status { color: var(--muted); }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--accent); }
+  .outputs a { color: var(--accent-2); margin-right: 12px; }
+  .broll li { margin-bottom: 4px; color: #cfd3d7; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">Reels Studio</h1>
+  <span class="meta" id="meta"></span>
+  <span class="spacer"></span>
+  <span class="status" id="status"></span>
+  <button id="save">Save</button>
+  <button id="render" class="primary">Export for CapCut</button>
+</header>
+
+<main>
+  <div class="phone">
+    <div class="screen">
+      <video id="video" playsinline preload="auto"></video>
+      <div class="hook" id="hook"></div>
+      <div class="cap" id="cap"></div>
+    </div>
+    <div class="controls">
+      <button id="play">▶ Play</button>
+      <div class="progress" id="progress"><div></div></div>
+      <span class="time" id="time">0.0 / 0.0 s</span>
+    </div>
+    <p class="outputs" id="outputs"></p>
+  </div>
+
+  <div>
+    <section class="card">
+      <h2>On-screen text &amp; post</h2>
+      <label class="field"><span>Hook (first 3 seconds)</span><input type="text" data-key="hook_text"></label>
+      <label class="field"><span>Cover text</span><input type="text" data-key="cover_text"></label>
+      <label class="field"><span>Words to highlight in captions (comma separated)</span><input type="text" id="emphasis"></label>
+      <label class="field"><span>Instagram caption</span><textarea data-key="post_caption"></textarea></label>
+      <label class="field"><span>Music vibe</span><input type="text" data-key="music_vibe"></label>
+      <div><span class="status">B-roll ideas</span><ul class="broll" id="broll"></ul></div>
+    </section>
+
+    <section class="card">
+      <h2>Cuts &amp; captions</h2>
+      <p class="status">Untick a cut to drop it. Nudge start/end by 0.1 s. Edit caption text directly. Use ↑ ↓ to reorder.</p>
+      <div id="segments"></div>
+    </section>
+  </div>
+</main>
+
+<script>
+let plan = null;
+let dirty = false;
+const $ = (id) => document.getElementById(id);
+const video = $("video");
+
+function setStatus(text, cls = "") { const s = $("status"); s.textContent = text; s.className = "status " + cls; }
+function markDirty() { dirty = true; setStatus("Unsaved changes"); updateMeta(); }
+
+function enabledTimeline() {
+  let t = 0; const out = [];
+  for (const seg of plan.segments) {
+    if (seg.enabled === false || seg.end <= seg.start) continue;
+    out.push({ seg, offset: t }); t += seg.end - seg.start;
+  }
+  return out;
+}
+const totalLength = () => enabledTimeline().reduce((a, x) => a + x.seg.end - x.seg.start, 0);
+function updateMeta() {
+  const tl = enabledTimeline();
+  $("meta").textContent = `${totalLength().toFixed(1)} s · ${tl.length} cuts`;
+}
+
+function escapeHtml(s) { return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+function renderFields() {
+  document.querySelectorAll("[data-key]").forEach((el) => {
+    el.value = plan[el.dataset.key] || "";
+    el.oninput = () => { plan[el.dataset.key] = el.value; markDirty(); if (el.dataset.key === "hook_text") drawOverlay(); };
+  });
+  $("emphasis").value = (plan.emphasis_words || []).join(", ");
+  $("emphasis").oninput = (e) => { plan.emphasis_words = e.target.value.split(",").map((w) => w.trim()).filter(Boolean); markDirty(); };
+  $("broll").innerHTML = (plan.broll || []).map((b) => `<li><b>“${escapeHtml(b.at_words)}”</b> → ${escapeHtml(b.idea)}</li>`).join("") || "<li>none</li>";
+  $("title").textContent = plan.title || "Reels Studio";
+  document.title = (plan.title || "Reels") + " · Reels Studio";
+}
+
+function renderSegments() {
+  const box = $("segments"); box.innerHTML = "";
+  plan.segments.forEach((seg, i) => {
+    const el = document.createElement("div");
+    el.className = "seg" + (seg.enabled === false ? " off" : "");
+    el.dataset.id = seg.id;
+    const clipName = (plan.clips[seg.clip].path.split(/[\\/]/).pop());
+    el.innerHTML = `
+      <div class="seg-top">
+        <input type="checkbox" ${seg.enabled === false ? "" : "checked"} title="Keep this cut">
+        <button class="small" data-act="play">▶</button>
+        <span class="reason">${escapeHtml(seg.reason || "")} · ${escapeHtml(clipName)}</span>
+        <button class="small" data-act="up" title="Move up">↑</button>
+        <button class="small" data-act="down" title="Move down">↓</button>
+      </div>
+      <div class="seg-text">${escapeHtml(seg.text || "(no speech / b-roll)")}</div>
+      <div class="times">
+        start <button class="small" data-act="s-">−</button><input type="number" step="0.05" data-f="start" value="${seg.start}"><button class="small" data-act="s+">+</button>
+        end <button class="small" data-act="e-">−</button><input type="number" step="0.05" data-f="end" value="${seg.end}"><button class="small" data-act="e+">+</button>
+        <span>${(seg.end - seg.start).toFixed(2)} s</span>
+      </div>
+      <div class="caps"></div>`;
+    el.querySelector("input[type=checkbox]").onchange = (e) => { seg.enabled = e.target.checked; el.classList.toggle("off", !seg.enabled); markDirty(); };
+    el.querySelectorAll("input[data-f]").forEach((inp) => inp.onchange = () => { seg[inp.dataset.f] = round(parseFloat(inp.value)); markDirty(); renderSegments(); });
+    el.querySelectorAll("button[data-act]").forEach((b) => b.onclick = () => act(b.dataset.act, seg, i));
+    const caps = el.querySelector(".caps");
+    plan.captions.filter((c) => c.segment_id === seg.id).forEach((cap) => {
+      const inp = document.createElement("input");
+      inp.type = "text"; inp.value = cap.text; inp.size = Math.max(4, cap.text.length);
+      inp.title = `${cap.start.toFixed(2)}–${cap.end.toFixed(2)} s`;
+      inp.oninput = () => { cap.text = inp.value; inp.size = Math.max(4, inp.value.length); markDirty(); };
+      caps.appendChild(inp);
+    });
+    box.appendChild(el);
+  });
+  updateMeta();
+}
+
+const round = (x) => Math.round(x * 1000) / 1000;
+function act(a, seg, i) {
+  const maxEnd = plan.clips[seg.clip].duration;
+  if (a === "play") { playFrom(seg); return; }
+  if (a === "s-") seg.start = round(Math.max(0, seg.start - 0.1));
+  if (a === "s+") seg.start = round(Math.min(seg.end - 0.1, seg.start + 0.1));
+  if (a === "e-") seg.end = round(Math.max(seg.start + 0.1, seg.end - 0.1));
+  if (a === "e+") seg.end = round(Math.min(maxEnd, seg.end + 0.1));
+  if (a === "up" && i > 0) [plan.segments[i - 1], plan.segments[i]] = [plan.segments[i], plan.segments[i - 1]];
+  if (a === "down" && i < plan.segments.length - 1) [plan.segments[i + 1], plan.segments[i]] = [plan.segments[i], plan.segments[i + 1]];
+  markDirty(); renderSegments();
+}
+
+// ---- playback: plays the edit as a sequence of source-clip ranges ----
+let playing = false, current = -1, currentClip = -1;
+
+function loadClip(clip) {
+  return new Promise((resolve) => {
+    if (currentClip === clip) return resolve();
+    currentClip = clip;
+    video.src = `/media/clip/${clip}`;
+    video.onloadedmetadata = () => resolve();
+  });
+}
+async function seekTo(idx, within = 0) {
+  const tl = enabledTimeline();
+  if (idx >= tl.length) { stop(); current = -1; return; }
+  current = idx;
+  const { seg } = tl[idx];
+  await loadClip(seg.clip);
+  video.currentTime = seg.start + within;
+  document.querySelectorAll(".seg").forEach((el) => el.classList.toggle("playing", el.dataset.id === seg.id));
+  if (playing) video.play();
+}
+function playFrom(seg) {
+  const idx = enabledTimeline().findIndex((x) => x.seg.id === seg.id);
+  if (idx < 0) return;
+  playing = true; $("play").textContent = "❚❚ Pause"; seekTo(idx);
+}
+function stop() { playing = false; video.pause(); $("play").textContent = "▶ Play"; }
+$("play").onclick = () => {
+  if (playing) return stop();
+  playing = true; $("play").textContent = "❚❚ Pause";
+  if (current < 0) seekTo(0); else video.play();
+};
+$("progress").onclick = (e) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  const target = (e.clientX - r.left) / r.width * totalLength();
+  const tl = enabledTimeline();
+  const idx = tl.findIndex((x) => target < x.offset + x.seg.end - x.seg.start);
+  if (idx >= 0) seekTo(idx, target - tl[idx].offset);
+};
+
+function outputTime() {
+  const tl = enabledTimeline();
+  if (current < 0 || current >= tl.length) return 0;
+  return tl[current].offset + Math.max(0, video.currentTime - tl[current].seg.start);
+}
+function drawOverlay() {
+  const t = outputTime();
+  $("hook").innerHTML = plan.hook_text && t < 2.8 ? `<span>${escapeHtml(plan.hook_text)}</span>` : "";
+  const tl = enabledTimeline(); let text = "";
+  if (current >= 0 && current < tl.length) {
+    const seg = tl[current].seg, vt = video.currentTime;
+    const cap = plan.captions.find((c) => c.segment_id === seg.id && vt >= c.start - 0.05 && vt < c.end + 0.25);
+    if (cap) text = cap.text;
+  }
+  const em = new Set((plan.emphasis_words || []).map((w) => w.toLowerCase().replace(/[.,!?]/g, "")));
+  $("cap").innerHTML = text.split(/\s+/).map((w) => em.has(w.toLowerCase().replace(/[.,!?]/g, "")) ? `<span class="em">${escapeHtml(w)}</span>` : escapeHtml(w)).join(" ");
+  const total = totalLength();
+  $("progress").firstElementChild.style.width = total ? `${(t / total) * 100}%` : "0";
+  $("time").textContent = `${t.toFixed(1)} / ${total.toFixed(1)} s`;
+}
+function tick() {
+  const tl = enabledTimeline();
+  if (playing && current >= 0 && current < tl.length && video.currentTime >= tl[current].seg.end - 0.02) {
+    seekTo(current + 1);
+  }
+  drawOverlay();
+  requestAnimationFrame(tick);
+}
+
+// ---- save & export ----
+async function save() {
+  await fetch("/api/plan", { method: "POST", body: JSON.stringify(plan) });
+  dirty = false; setStatus("Saved", "ok");
+}
+$("save").onclick = save;
+$("render").onclick = async () => {
+  const btn = $("render"); btn.disabled = true;
+  try {
+    await save();
+    setStatus("Rendering… this can take a minute");
+    const res = await fetch("/api/render", { method: "POST", body: "{}" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Render failed");
+    setStatus(`Exported ${data.seconds} s reel`, "ok");
+    const v = Date.now();
+    $("outputs").innerHTML = `<a href="/media/out/rough_cut.mp4?${v}" target="_blank">rough_cut.mp4</a><a href="/media/out/captions.srt?${v}" target="_blank">captions.srt</a><a href="/media/out/preview_with_captions.mp4?${v}" target="_blank">preview</a>`;
+  } catch (err) { setStatus(err.message, "err"); }
+  finally { btn.disabled = false; }
+};
+window.addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); }
+  if (e.key === " " && !["INPUT", "TEXTAREA"].includes(document.activeElement.tagName)) { e.preventDefault(); $("play").click(); }
+});
+
+fetch("/api/plan").then((r) => r.json()).then((p) => {
+  plan = p; renderFields(); renderSegments(); requestAnimationFrame(tick);
+});
+</script>
+</body>
+</html>
