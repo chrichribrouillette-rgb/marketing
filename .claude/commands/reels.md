@@ -10,6 +10,8 @@ Arguments: $ARGUMENTS
 
 ## Steps
 
+Use `python3` if `python` is not found (common on Mac).
+
 1. Transcribe the clips (from the repository root):
    ```bash
    python reels_engine.py prepare $ARGUMENTS
