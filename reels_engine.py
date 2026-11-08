@@ -25,6 +25,7 @@ Needs ffmpeg installed.
 from __future__ import annotations
 
 import argparse
+import glob
 import json
 import os
 import re
@@ -99,7 +100,11 @@ def prepare(args) -> Path:
     from reels.render import probe
     from reels.transcribe import transcribe_clip, transcript_for_prompt
 
-    clip_paths = [Path(p) for p in args.clips]
+    # expand wildcards like inbox/*.mp4 ourselves: the Windows command line doesn't
+    clip_paths = []
+    for pattern in args.clips:
+        matches = sorted(glob.glob(pattern))
+        clip_paths += [Path(m) for m in matches] if matches else [Path(pattern)]
     missing = [str(p) for p in clip_paths if not p.is_file()]
     if missing:
         sys.exit(f"Can't find: {', '.join(missing)}")
@@ -142,8 +147,8 @@ def finish(project: Path, preview: bool = True, studio: bool = False, port: int 
     except ValidationError as exc:
         sys.exit(f"edit.json doesn't match the expected format:\n{exc}")
 
-    source = json.loads((project / "source.json").read_text())
-    words = json.loads((project / "words.json").read_text())
+    source = json.loads((project / "source.json").read_text(encoding="utf-8"))
+    words = json.loads((project / "words.json").read_text(encoding="utf-8"))
     plan = build_plan(claude_plan, source["clips"], words, {"max_pause": source.get("max_pause", 0.35)})
     if not plan["segments"]:
         sys.exit("edit.json kept nothing usable: check the clip numbers and times.")
@@ -178,9 +183,9 @@ def cmd_make(args) -> None:
     from reels.planner import make_plan
 
     project = prepare(args)
-    source = json.loads((project / "source.json").read_text())
+    source = json.loads((project / "source.json").read_text(encoding="utf-8"))
     print("Claude is editing (picking the hook, best takes and order)...")
-    claude_plan = make_plan((project / "transcript.txt").read_text(),
+    claude_plan = make_plan((project / "transcript.txt").read_text(encoding="utf-8"),
                             [Path(c["path"]).name for c in source["clips"]], source["brief"], source["length"])
     (project / "edit.json").write_text(claude_plan.model_dump_json(indent=2), encoding="utf-8")
     finish(project, preview=not args.no_preview, studio=args.studio, port=args.port)

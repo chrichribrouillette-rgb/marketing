@@ -21,11 +21,12 @@ def transcribe_clip(clip: Path, cache_dir: Path, model_size: str = "small", lang
     cache_dir.mkdir(parents=True, exist_ok=True)
     cached = _cache_path(clip, cache_dir)
     if cached.exists():
-        return json.loads(cached.read_text())
+        return json.loads(cached.read_text(encoding="utf-8"))
 
     from faster_whisper import WhisperModel  # imported lazily: it is slow to load
 
-    model = WhisperModel(model_size, device="auto", compute_type="auto")
+    # CPU works on every computer; GPU setups (CUDA/cuDNN) often crash on Windows.
+    model = WhisperModel(model_size, device="cpu", compute_type="int8")
     segments, _info = model.transcribe(
         str(clip),
         language=language,
@@ -38,7 +39,7 @@ def transcribe_clip(clip: Path, cache_dir: Path, model_size: str = "small", lang
         for w in (seg.words or [])
         if w.word.strip()
     ]
-    cached.write_text(json.dumps(words))
+    cached.write_text(json.dumps(words), encoding="utf-8")
     return words
 
 
