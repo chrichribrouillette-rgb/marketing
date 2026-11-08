@@ -1,8 +1,14 @@
-"""Ask Claude to turn a raw transcript into a reel edit plan."""
+"""Edit decisions for a reel: the schema, Claude's editing rules, and the optional API call.
+
+Two ways to get an edit plan:
+- No API key (default): Claude Code reads EDIT_INSTRUCTIONS.md and writes edit.json itself.
+- With an API key: make_plan() calls the Claude API directly.
+"""
 
 from __future__ import annotations
 
-import anthropic
+import json
+
 from pydantic import BaseModel, Field
 
 MODEL = "claude-opus-5-5"
@@ -49,15 +55,49 @@ Editing rules:
   suggest where they go in the b-roll list instead, naming the clip."""
 
 
-def make_plan(transcript: str, clip_names: list[str], brief: str, target_seconds: int) -> ClaudeEditPlan:
-    client = anthropic.Anthropic()
+def edit_request(transcript: str, clip_names: list[str], brief: str, target_seconds: int) -> str:
     clips = "\n".join(f"clip {i}: {name}" for i, name in enumerate(clip_names))
-    user = (
+    return (
         f"Brief / brand context: {brief or 'none given - infer from the footage'}\n"
         f"Target length: about {target_seconds} seconds\n\n"
         f"Source clips:\n{clips}\n\n"
         f"Transcript:\n{transcript}"
     )
+
+
+def instructions_markdown(transcript: str, clip_names: list[str], brief: str, target_seconds: int) -> str:
+    """Everything Claude Code needs to write edit.json without an API key."""
+    schema = json.dumps(ClaudeEditPlan.model_json_schema(), indent=2)
+    return f"""# Edit this reel
+
+You are editing a reel. Read the rules and the footage below, then write your decisions
+as JSON to `edit.json` in this folder, matching the schema exactly. Then run:
+
+    python reels_engine.py finish <this folder>
+
+## Editing rules
+{SYSTEM_PROMPT}
+
+## The footage
+{edit_request(transcript, clip_names, brief, target_seconds)}
+
+## edit.json schema
+```json
+{schema}
+```
+"""
+
+
+def parse_edit_file(text: str) -> ClaudeEditPlan:
+    return ClaudeEditPlan.model_validate_json(text)
+
+
+def make_plan(transcript: str, clip_names: list[str], brief: str, target_seconds: int) -> ClaudeEditPlan:
+    """Optional: get the edit from the Claude API (needs ANTHROPIC_API_KEY, billed separately)."""
+    import anthropic
+
+    client = anthropic.Anthropic()
+    user = edit_request(transcript, clip_names, brief, target_seconds)
     response = client.beta.messages.parse(
         model=MODEL,
         max_tokens=16000,

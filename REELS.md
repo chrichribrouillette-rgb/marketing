@@ -18,25 +18,20 @@ What Claude decides:
 
 What the code does precisely: it cuts each word to the exact millisecond, removes pauses over 0.35 s, splits captions into 1–3 word chunks, reframes to 1080×1920, and renders.
 
-## One-time setup
+## Make a reel (no API key needed)
 
-1. Install ffmpeg: on Mac, `brew install ffmpeg`. On Windows, `winget install ffmpeg`.
-2. Install the Python packages:
-   ```bash
-   pip install -r requirements.txt
+The editing decisions come from Claude Code, so they count against your normal Claude plan. Nothing is billed separately.
+
+1. Upload your clip to the `inbox/` folder. On GitHub, go to "Add file", then "Upload files".
+2. In Claude Code, type:
    ```
-3. Add your Claude API key to a `.env` file in this folder:
-   ```
-   ANTHROPIC_API_KEY=your-key-here
+   /reels inbox/take1.mov --brief "Vitamin C goes on in the morning. CTA: link in bio" --length 30 --name vitamin-c
    ```
 
-The first run downloads the speech-to-text model (~500 MB for `small`). Transcription runs on your computer for free. Only the text transcript goes to Claude, never the video.
-
-## Make a reel
-
-```bash
-python reels_engine.py make take1.mov take2.mov --brief "Vitamin C goes on in the morning. CTA: link in bio" --length 30 --name vitamin-c
-```
+Claude Code then runs three steps:
+1. `python reels_engine.py prepare ...` transcribes the clip on the machine. This is free.
+2. Claude Code reads `EDIT_INSTRUCTIONS.md` and writes its decisions to `edit.json`.
+3. `python reels_engine.py finish reels_projects/vitamin-c` cuts and renders the CapCut files.
 
 Useful options:
 
@@ -48,9 +43,10 @@ Useful options:
 | `--language fr` | Spoken language. It's detected automatically if you leave this out. |
 | `--whisper medium` | Better transcription and slower. Use `tiny` for speed. |
 | `--max-pause 0.5` | Less aggressive jump cuts. |
-| `--studio` | Opens the visual editor when it's done. |
 
-In Claude Code you can also type `/reels take1.mov --brief "..."`.
+The machine running it needs ffmpeg and the Python packages (`pip install -r requirements.txt`). The first run downloads the free speech-to-text model (~500 MB for `small`).
+
+**Optional, with an API key:** `python reels_engine.py make ...` does all three steps in one command without Claude Code. It calls the Claude API, which is billed separately from a Claude plan (roughly 10 cents per reel), and needs `ANTHROPIC_API_KEY` in a `.env` file.
 
 Everything lands in `reels_projects/<name>/capcut/`:
 

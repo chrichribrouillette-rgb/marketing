@@ -7,13 +7,19 @@ Reels Editing Engine - raw talking-head footage in, CapCut-ready reel out.
     4. Exports a 9:16 rough cut + captions file for CapCut, and a captioned preview
     5. The Reels Studio (local web page) lets you tweak cuts and captions, then re-export
 
-Usage:
-    python reels_engine.py make clip1.mov clip2.mov --brief "Glow serum launch, playful" --length 30
-    python reels_engine.py make footage/*.mp4 --industry 2 --name serum-launch --studio
-    python reels_engine.py studio reels_projects/serum-launch
-    python reels_engine.py export reels_projects/serum-launch
+No API key (Claude Code does the editing, using your Claude plan) - easiest via /reels:
+    python reels_engine.py prepare clip1.mov clip2.mov --brief "Glow serum launch" --name serum
+    (Claude Code reads reels_projects/serum/EDIT_INSTRUCTIONS.md and writes edit.json)
+    python reels_engine.py finish reels_projects/serum
 
-Needs ffmpeg installed and ANTHROPIC_API_KEY set.
+With an API key (billed separately), all in one go:
+    python reels_engine.py make clip1.mov --brief "Glow serum launch" --name serum
+
+Afterwards:
+    python reels_engine.py studio reels_projects/serum     # tweak cuts and captions
+    python reels_engine.py export reels_projects/serum     # re-render from plan.json
+
+Needs ffmpeg installed.
 """
 
 from __future__ import annotations
@@ -79,53 +85,105 @@ def industry_brief(number: str | None) -> str:
     return f"Industry: {agent.INDUSTRY}. {agent.INDUSTRY_PROMPT}".strip()
 
 
-def cmd_make(args) -> None:
-    check_ffmpeg()
-    if not os.getenv("ANTHROPIC_API_KEY"):
-        sys.exit("ANTHROPIC_API_KEY is not set. Run: export ANTHROPIC_API_KEY='your-key-here'")
+def _project_dir(name: str | None, first_clip: Path) -> Path:
+    name = name or f"{datetime.now():%Y%m%d-%H%M}-{slugify(first_clip.stem)}"
+    project = PROJECTS_DIR / slugify(name)
+    project.mkdir(parents=True, exist_ok=True)
+    return project
 
-    from reels.plan import build_plan, save_plan
-    from reels.planner import make_plan
-    from reels.render import export_all, probe
+
+def prepare(args) -> Path:
+    """Steps 1-2: read and transcribe the clips, write the edit instructions. No API key needed."""
+    check_ffmpeg()
+    from reels.planner import instructions_markdown
+    from reels.render import probe
     from reels.transcribe import transcribe_clip, transcript_for_prompt
 
     clip_paths = [Path(p) for p in args.clips]
     missing = [str(p) for p in clip_paths if not p.is_file()]
     if missing:
         sys.exit(f"Can't find: {', '.join(missing)}")
+    project = _project_dir(args.name, clip_paths[0])
 
-    name = args.name or f"{datetime.now():%Y%m%d-%H%M}-{slugify(clip_paths[0].stem)}"
-    project = PROJECTS_DIR / slugify(name)
-    project.mkdir(parents=True, exist_ok=True)
-
-    print(f"1/4  Reading {len(clip_paths)} clip(s)...")
+    print(f"1/2  Reading {len(clip_paths)} clip(s)...")
     clips = [probe(p) for p in clip_paths]
 
-    print(f"2/4  Transcribing (first run downloads the '{args.whisper}' speech model)...")
+    print(f"2/2  Transcribing (first run downloads the '{args.whisper}' speech model)...")
     words = []
     for p in clip_paths:
         w = transcribe_clip(p, PROJECTS_DIR / ".cache", model_size=args.whisper, language=args.language)
         print(f"     {p.name}: {len(w)} words")
         words.append(w)
+
     transcript = transcript_for_prompt(words)
+    brief = " ".join(filter(None, [args.brief, industry_brief(args.industry)]))
     (project / "transcript.txt").write_text(transcript, encoding="utf-8")
     (project / "words.json").write_text(json.dumps(words), encoding="utf-8")
+    (project / "source.json").write_text(json.dumps(
+        {"clips": clips, "brief": brief, "length": args.length, "max_pause": args.max_pause}, indent=2))
+    (project / "EDIT_INSTRUCTIONS.md").write_text(
+        instructions_markdown(transcript, [p.name for p in clip_paths], brief, args.length), encoding="utf-8")
+    return project
 
-    print("3/4  Claude is editing (picking the hook, best takes and order)...")
-    brief = " ".join(filter(None, [args.brief, industry_brief(args.industry)]))
-    claude_plan = make_plan(transcript, [p.name for p in clip_paths], brief, args.length)
-    plan = build_plan(claude_plan, clips, words, {"max_pause": args.max_pause})
+
+def finish(project: Path, preview: bool = True, studio: bool = False, port: int = 8765) -> None:
+    """Steps 3-4: apply Claude's edit decisions (edit.json) and render the CapCut files."""
+    check_ffmpeg()
+    from pydantic import ValidationError
+    from reels.plan import build_plan, save_plan
+    from reels.planner import parse_edit_file
+    from reels.render import export_all
+
+    edit_path = project / "edit.json"
+    if not edit_path.is_file():
+        sys.exit(f"No edit.json in {project}. Ask Claude Code to follow {project / 'EDIT_INSTRUCTIONS.md'} first.")
+    try:
+        claude_plan = parse_edit_file(edit_path.read_text(encoding="utf-8"))
+    except ValidationError as exc:
+        sys.exit(f"edit.json doesn't match the expected format:\n{exc}")
+
+    source = json.loads((project / "source.json").read_text())
+    words = json.loads((project / "words.json").read_text())
+    plan = build_plan(claude_plan, source["clips"], words, {"max_pause": source.get("max_pause", 0.35)})
+    if not plan["segments"]:
+        sys.exit("edit.json kept nothing usable: check the clip numbers and times.")
     save_plan(plan, project / "plan.json")
 
-    print("4/4  Rendering for CapCut...")
+    print("Rendering for CapCut...")
     out = project / "capcut"
-    export_all(plan, out, preview=not args.no_preview)
+    export_all(plan, out, preview=preview)
     (out / "CAPCUT_STEPS.md").write_text(CAPCUT_STEPS, encoding="utf-8")
-
     summary(plan, project)
-    if args.studio:
+    if studio:
         from reels.server import serve
-        serve(project, port=args.port)
+        serve(project, port=port)
+
+
+def cmd_prepare(args) -> None:
+    project = prepare(args)
+    print(f"\nReady for editing: {project}")
+    print(f"Next: Claude Code reads {project / 'EDIT_INSTRUCTIONS.md'}, writes edit.json, then runs:")
+    print(f"      python reels_engine.py finish {project}")
+
+
+def cmd_finish(args) -> None:
+    finish(Path(args.project), preview=not args.no_preview, studio=args.studio, port=args.port)
+
+
+def cmd_make(args) -> None:
+    """All in one go using the Claude API (needs ANTHROPIC_API_KEY, billed separately from a Claude plan)."""
+    if not os.getenv("ANTHROPIC_API_KEY"):
+        sys.exit("`make` uses the Claude API and needs ANTHROPIC_API_KEY.\n"
+                 "No key? Use `prepare` + `finish` with Claude Code instead (or the /reels command).")
+    from reels.planner import make_plan
+
+    project = prepare(args)
+    source = json.loads((project / "source.json").read_text())
+    print("Claude is editing (picking the hook, best takes and order)...")
+    claude_plan = make_plan((project / "transcript.txt").read_text(),
+                            [Path(c["path"]).name for c in source["clips"]], source["brief"], source["length"])
+    (project / "edit.json").write_text(claude_plan.model_dump_json(indent=2), encoding="utf-8")
+    finish(project, preview=not args.no_preview, studio=args.studio, port=args.port)
 
 
 def cmd_export(args) -> None:
@@ -162,15 +220,29 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Reels Editing Engine (Claude + CapCut)")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    make = sub.add_parser("make", help="Edit raw clips into a reel")
-    make.add_argument("clips", nargs="+", help="Video files, in the order you filmed them")
-    make.add_argument("--brief", default="", help="What the reel is about, brand voice, call to action")
-    make.add_argument("--industry", help="Industry number from the marketing agents (1-10) for tone")
-    make.add_argument("--length", type=int, default=30, help="Target length in seconds (default 30)")
-    make.add_argument("--name", help="Project name (folder under reels_projects/)")
-    make.add_argument("--whisper", default="small", help="Speech model: tiny, base, small, medium, large-v3")
-    make.add_argument("--language", help="Spoken language code, e.g. en or fr (auto-detected if omitted)")
-    make.add_argument("--max-pause", type=float, default=0.35, help="Cut silences longer than this (seconds)")
+    def clip_options(p):
+        p.add_argument("clips", nargs="+", help="Video files, in the order you filmed them")
+        p.add_argument("--brief", default="", help="What the reel is about, brand voice, call to action")
+        p.add_argument("--industry", help="Industry number from the marketing agents (1-10) for tone")
+        p.add_argument("--length", type=int, default=30, help="Target length in seconds (default 30)")
+        p.add_argument("--name", help="Project name (folder under reels_projects/)")
+        p.add_argument("--whisper", default="small", help="Speech model: tiny, base, small, medium, large-v3")
+        p.add_argument("--language", help="Spoken language code, e.g. en or fr (auto-detected if omitted)")
+        p.add_argument("--max-pause", type=float, default=0.35, help="Cut silences longer than this (seconds)")
+
+    prep = sub.add_parser("prepare", help="Transcribe clips and write edit instructions for Claude Code (no API key)")
+    clip_options(prep)
+    prep.set_defaults(func=cmd_prepare)
+
+    fin = sub.add_parser("finish", help="Render CapCut files from the edit.json Claude Code wrote")
+    fin.add_argument("project")
+    fin.add_argument("--no-preview", action="store_true", help="Skip the captioned preview video")
+    fin.add_argument("--studio", action="store_true", help="Open the studio when done")
+    fin.add_argument("--port", type=int, default=8765)
+    fin.set_defaults(func=cmd_finish)
+
+    make = sub.add_parser("make", help="All in one using the Claude API (needs ANTHROPIC_API_KEY)")
+    clip_options(make)
     make.add_argument("--no-preview", action="store_true", help="Skip the captioned preview video")
     make.add_argument("--studio", action="store_true", help="Open the studio when done")
     make.add_argument("--port", type=int, default=8765)
